@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Optional, Union
 
 from metatrader_mcp.utils import init, get_client
+from metatrader_mcp.smc_tools import register_smc_tools
 
 # ────────────────────────────────────────────────────────────────────────────────
 # 1) Lifespan context definition
@@ -53,6 +54,11 @@ mcp = FastMCP(
 	lifespan=app_lifespan,
 	dependencies=[],
 )
+
+# ────────────────────────────────────────────────────────────────────────────────
+# 2b) Tools de SMC (leem o JSON do indicador SMC_Suite; nao usam o cliente MT5)
+# ────────────────────────────────────────────────────────────────────────────────
+register_smc_tools(mcp)
 
 # ────────────────────────────────────────────────────────────────────────────────
 # 3) Register tools with @mcp.tool()
