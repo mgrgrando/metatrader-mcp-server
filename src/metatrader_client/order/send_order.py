@@ -264,6 +264,7 @@ def send_order(
 			request = {
 				"action": action,
 				"position": position,
+				"symbol": symbol,
 				"sl": stop_loss,
 				"tp": take_profit,
 				"comment": comment,
@@ -274,8 +275,10 @@ def send_order(
 			error_code, error_description = mt5.last_error()
 			if error_code < 0:
 				return { "success": False, "message": f"Error {error_code}: {error_description}", "data": None }
+			if response is not None and getattr(response, "retcode", 0) != mt5.TRADE_RETCODE_DONE:
+				return { "success": False, "message": f"Error {response.retcode}: {response.comment}", "data": response }
 			return { "success": True, "message": "Order sent successfully", "data": response }
-			
+
 		# ------------
 		# Modify order
 		# ------------

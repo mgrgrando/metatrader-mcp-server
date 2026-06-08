@@ -58,6 +58,7 @@ def modify_position(
 		connection,
 		action = TradeRequestActions.SLTP,
 		position = position_id,
+		symbol = position["symbol"],
 		stop_loss = stop_loss if stop_loss is not None else position["stop_loss"],
 		take_profit = take_profit if take_profit is not None else position["take_profit"],
 	)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import argparse
+import asyncio
 import logging
 from dotenv import load_dotenv
 
@@ -21,17 +22,28 @@ class AppContext:
 
 @asynccontextmanager
 async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
+	# `init`/`disconnect` perform blocking I/O against the MT5 terminal.
+	# Running them directly inside this coroutine would block the asyncio
+	# event loop (noticeable as high latency / dropped connections when
+	# serving over HTTP transports such as streamable-http or sse, since
+	# every incoming request has to wait for the loop to become free).
+	# Offloading them to a worker thread keeps the loop responsive and
+	# the MT5 connection is established once and reused for the whole
+	# lifetime of the server process.
+	loop = asyncio.get_event_loop()
 
+	client = await loop.run_in_executor(
+		None,
+		init,
+		os.getenv("login"),
+		os.getenv("password"),
+		os.getenv("server"),
+		os.getenv("MT5_PATH"),
+	)
 	try:
-		client = init(
-			os.getenv("login"),
-			os.getenv("password"),
-			os.getenv("server"),
-			os.getenv("MT5_PATH")
-		)
 		yield AppContext(client=client)
 	finally:
-		client.disconnect()
+		await loop.run_in_executor(None, client.disconnect)
 
 # ────────────────────────────────────────────────────────────────────────────────
 # 2) Instantiate FastMCP as `mcp` (must be named `mcp`, `server`, or `app`)
