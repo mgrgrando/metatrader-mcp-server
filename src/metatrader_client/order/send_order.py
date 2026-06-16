@@ -102,13 +102,14 @@ def send_order(
 		symbol_info = mt5.symbol_info(symbol)
 		if symbol_info is None:
 			return { "success": False, "message": f"Failed to get symbol info for {symbol}", "data": None }
-		# Fetch broker-supported filling modes
+		# Fetch broker-supported filling modes (prefer RETURN, then IOC, then FOK).
 		filling_mask = symbol_info.filling_mode
 		filling_to_enum = {
-			1: mt5.ORDER_FILLING_FOK,
+			4: mt5.ORDER_FILLING_RETURN,
 			2: mt5.ORDER_FILLING_IOC,
-			4: mt5.ORDER_FILLING_RETURN
+			1: mt5.ORDER_FILLING_FOK,
 		}
+		selected_filling = mt5.ORDER_FILLING_FOK
 		for flag, enum in filling_to_enum.items():
 			if filling_mask & flag:
 				selected_filling = enum
@@ -227,20 +228,22 @@ def send_order(
 						if price > tick.bid:
 							return { "success": False, "message": "Invalid price, must be below current bid", "data": None }
 
-			request = {
-				"action": action,
-				"symbol": symbol,
-				"volume": volume,
-				"type": order_type,
-				"price": price,
-				"sl": stop_loss,
-				"tp": take_profit,
-				"deviation": deviation,
-				"comment": comment,
-				"type_time": OrderTime.SPECIFIED.value if expiration else OrderTime.GTC.value,
-				"expiration": expiration if expiration else 0,
-				"type_filling": selected_filling,
-			}
+			# B3 requires DAY validity for all pending order types (LIMIT and STOP).
+				request = {
+					"action": action,
+					"symbol": symbol,
+					"volume": volume,
+					"type": order_type,
+					"price": price,
+					"sl": stop_loss,
+					"tp": take_profit,
+					"deviation": deviation,
+					"comment": comment,
+					"type_time": OrderTime.SPECIFIED.value if expiration else OrderTime.DAY.value,
+					"expiration": expiration if expiration else 0,
+					# Pending orders require RETURN filling on B3 futures regardless of symbol filling_mode.
+					"type_filling": mt5.ORDER_FILLING_RETURN,
+				}
 
 			response = mt5.order_send(request)
 
