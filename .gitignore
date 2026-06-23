@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Backtest bridge — cache de decisoes gerado em runtime
+backtest_cache.json
+**/backtest_cache.json
+
 # Distribution / packaging
 build/
 *.egg-info/
