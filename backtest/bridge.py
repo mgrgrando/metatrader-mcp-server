@@ -18,10 +18,10 @@ Requer: fastapi, uvicorn, httpx
 """
 import os
 import json
-import time
 import uuid
 import hmac
 import asyncio
+import logging
 import hashlib
 from pathlib import Path
 
@@ -30,12 +30,22 @@ from fastapi import FastAPI, Request
 
 # ─── Config (env) ────────────────────────────────────────────────────────────
 HERMES_URL      = os.getenv("HERMES_URL",      "http://192.168.100.56:8644")
-HERMES_ROUTE    = os.getenv("HERMES_ROUTE",    "smc")
-CALLBACK_BASE   = os.getenv("CALLBACK_BASE_URL", "http://192.168.100.56:8000")  # onde ESTA ponte escuta (acessivel pelo Hermes)
+HERMES_ROUTE    = os.getenv("HERMES_ROUTE",    "backtest")
+CALLBACK_BASE   = os.getenv("CALLBACK_BASE_URL", "http://127.0.0.1:8000")  # onde ESTA ponte escuta (acessivel pelo Hermes)
 DECIDE_TIMEOUT  = float(os.getenv("DECIDE_TIMEOUT", "45"))   # deve ser < timeout do EA
 DISPATCH_TIMEOUT= float(os.getenv("DISPATCH_TIMEOUT", "10")) # timeout do POST ao webhook
 WEBHOOK_SECRET  = os.getenv("HERMES_WEBHOOK_SECRET", "")     # se a rota exigir HMAC-SHA256
 CACHE_FILE      = Path(os.getenv("CACHE_FILE", "backtest_cache.json"))
+LOG_FILE        = os.getenv("LOG_FILE", "logs/bridge.log")
+
+# ─── Logging (arquivo + console) ─────────────────────────────────────────────
+Path(LOG_FILE).parent.mkdir(parents=True, exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    handlers=[logging.FileHandler(LOG_FILE, encoding="utf-8"), logging.StreamHandler()],
+)
+log = logging.getLogger("bridge")
 
 app = FastAPI(title="SMC Backtest Bridge")
 
@@ -102,10 +112,12 @@ def _sign(body: bytes) -> dict:
 @app.post("/decide")
 async def decide(req: Request):
     ctx = await req.json()
+    sym, t = ctx.get("symbol"), ctx.get("server_time")
 
     key = _cache_key(ctx)
     if key in _cache:
         out = dict(_cache[key]); out["source"] = "cache"
+        log.info("DECIDE cache-hit symbol=%s t=%s -> %s", sym, t, out.get("action"))
         return out
 
     correlation_id = uuid.uuid4().hex
@@ -122,11 +134,14 @@ async def decide(req: Request):
     _pending[correlation_id] = fut
 
     url = f"{HERMES_URL.rstrip('/')}/webhooks/{HERMES_ROUTE}"
+    log.info("DECIDE miss symbol=%s t=%s cid=%s -> dispatch %s", sym, t, correlation_id, url)
     try:
         async with httpx.AsyncClient(timeout=DISPATCH_TIMEOUT) as client:
-            await client.post(url, content=body, headers=headers)  # espera-se 202 Accepted
+            r = await client.post(url, content=body, headers=headers)  # espera-se 202 Accepted
+        log.info("DISPATCH cid=%s hermes_status=%s", correlation_id, r.status_code)
     except Exception as e:
         _pending.pop(correlation_id, None)
+        log.error("DISPATCH-FAIL cid=%s err=%s", correlation_id, e)
         return {"action": "NO_DECISION", "source": "error",
                 "reason": f"falha ao disparar Hermes: {e}", "correlation_id": correlation_id}
 
@@ -134,6 +149,7 @@ async def decide(req: Request):
         decision = await asyncio.wait_for(fut, timeout=DECIDE_TIMEOUT)
     except asyncio.TimeoutError:
         _pending.pop(correlation_id, None)
+        log.warning("TIMEOUT cid=%s sem callback em %ss", correlation_id, DECIDE_TIMEOUT)
         return {"action": "NO_DECISION", "source": "timeout",
                 "reason": f"sem callback em {DECIDE_TIMEOUT}s", "correlation_id": correlation_id}
 
@@ -141,6 +157,8 @@ async def decide(req: Request):
     _cache[key] = {k: v for k, v in decision.items() if k != "source"}
     _save_cache()
     decision["source"] = "llm"
+    log.info("DECIDE done cid=%s -> %s sl=%s tp=%s", correlation_id,
+             decision.get("action"), decision.get("sl"), decision.get("tp"))
     return decision
 
 @app.post("/callback")
@@ -151,10 +169,16 @@ async def callback(req: Request):
     fut = _pending.pop(cid, None)
     if fut and not fut.done():
         fut.set_result(decision)
+        log.info("CALLBACK ok cid=%s action=%s", cid, decision.get("action"))
         return {"status": "ok"}
+    log.warning("CALLBACK late/unknown cid=%s", cid)
     return {"status": "unknown_or_late", "correlation_id": cid}
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "pending": len(_pending), "cache_entries": len(_cache),
-            "hermes": f"{HERMES_URL}/webhooks/{HERMES_ROUTE}", "timeout": DECIDE_TIMEOUT}
+            "hermes": f"{HERMES_URL}/webhooks/{HERMES_ROUTE}",
+            "callback_base": CALLBACK_BASE, "timeout": DECIDE_TIMEOUT}
+
+log.info("bridge configurada | hermes=%s/webhooks/%s | callback_base=%s | timeout=%ss | log=%s",
+         HERMES_URL, HERMES_ROUTE, CALLBACK_BASE, DECIDE_TIMEOUT, LOG_FILE)

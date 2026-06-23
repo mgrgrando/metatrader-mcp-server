@@ -3,9 +3,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Backtest bridge — cache de decisoes gerado em runtime
+# Backtest bridge — cache e logs gerados em runtime
 backtest_cache.json
 **/backtest_cache.json
+logs/
+**/logs/
 
 # Distribution / packaging
 build/
