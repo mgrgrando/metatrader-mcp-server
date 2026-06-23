@@ -115,7 +115,12 @@ def _auth_headers(body: bytes) -> dict:
 # ─── Endpoints ───────────────────────────────────────────────────────────────
 @app.post("/decide")
 async def decide(req: Request):
-    ctx = await req.json()
+    import traceback as _tb
+    try:
+        ctx = await req.json()
+    except Exception as _e:
+        log.error("DECIDE json-parse error: %s\n%s", _e, _tb.format_exc())
+        raise
     sym, t = ctx.get("symbol"), ctx.get("server_time")
 
     key = _cache_key(ctx)
@@ -133,7 +138,7 @@ async def decide(req: Request):
     body = json.dumps(payload).encode("utf-8")
     headers = {"Content-Type": "application/json", **_auth_headers(body)}
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     fut: asyncio.Future = loop.create_future()
     _pending[correlation_id] = fut
 

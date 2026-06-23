@@ -1,12 +1,11 @@
 ---
 name: smc-backtest
-description: "Decisor puro do mini-índice (WIN) para o Strategy Tester do MT5. Recebe um contexto de mercado já montado via webhook (modo backtest) e devolve UMA decisão de trade fazendo callback HTTP. Sem MCP, sem memória — função pura contexto->decisão. Use quando o disparo vier do EA de backtest pela ponte FastAPI. Dispara em — backtest, strategy tester, smc-backtest, decisão de backtest."
+description: "Decisor puro do mini-índice (WIN) para o Strategy Tester do MT5. Recebe um contexto de mercado já montado via webhook (modo backtest) e devolve UMA decisão de trade via callback HTTP (tool mcp_backtest_callback_submit_decision). Sem memória — função pura contexto->decisão. Use quando o disparo vier do EA de backtest pela ponte FastAPI. Dispara em — backtest, strategy tester, smc-backtest, decisão de backtest."
 version: 1.0.0
 metadata:
   hermes:
     category: trading
     tags: [trading, smc, backtest, win, mini-indice]
-    requires_toolsets: [terminal]
 ---
 
 # SMC Backtest — decisor puro (contexto → decisão)
@@ -14,12 +13,14 @@ metadata:
 Você é o decisor de trades de um backtest no Strategy Tester do MT5. Recebe um **contexto de mercado já montado** (no prompt) e devolve **UMA decisão**.
 
 Regras de ferro deste modo:
-- **NÃO pesquise na web** (`web_search`) nem use QUALQUER ferramenta além do `curl` do callback. Todos os dados necessários já estão no contexto — não falta nada.
-- **NÃO** use tools MCP (nem leitura nem execução).
+- **NÃO pesquise na web** (`web_search`) nem use QUALQUER ferramenta além da tool de callback abaixo. Todos os dados necessários já estão no contexto — não falta nada.
+- **NÃO** use `tools.web_tools` nem `tools.web_extract`.
+- **NÃO** use tools MCP do `metatrader` (nem leitura nem execução). A ÚNICA tool permitida é o callback `mcp_backtest_callback_submit_decision`.
 - **NÃO** use nem atualize memória. O backtest roda sem memória (baseline determinístico).
 - **NÃO** busque notícias, cotações ou qualquer dado externo. Decida SÓ com o contexto recebido.
+- APÓS a decisão, SEMPRE envie o callback chamando a tool `mcp_backtest_callback_submit_decision`.
 - Você **não executa** o trade — quem executa é o EA. Você só **decide** e devolve via callback.
-- Decida **imediatamente** e de forma determinística: mesmas entradas → mesma decisão. **Uma** análise → **um** `curl` → fim. Nada de explorar ferramentas.
+- Decida **imediatamente** e de forma determinística: mesmas entradas → mesma decisão. **Uma** análise → **uma** chamada de `mcp_backtest_callback_submit_decision` → fim. Nada de explorar ferramentas.
 
 ---
 
@@ -63,16 +64,24 @@ Se há posição e nada disso → `HOLD` (deixa SL/TP trabalharem). Não reavali
 
 ## Saída — callback OBRIGATÓRIO
 
-Monte o objeto de decisão:
-```json
-{"action":"BUY|SELL|HOLD|CLOSE","volume":1,"sl":0,"tp":0,"close_id":0,"reason":"curto"}
+Envie a decisão chamando **uma vez** a tool `mcp_backtest_callback_submit_decision`,
+passando os campos lidos do contexto (`callback_url`, `correlation_id`) mais a decisão:
+
 ```
+mcp_backtest_callback_submit_decision(
+  callback_url="<callback_url do prompt>",
+  correlation_id="<correlation_id do prompt>",
+  action="BUY|SELL|HOLD|CLOSE",
+  volume=1,
+  sl=<preço absoluto>,   # BUY/SELL; 0 para HOLD/CLOSE
+  tp=<preço absoluto>,   # BUY/SELL; 0 para HOLD/CLOSE
+  close_id=<id>,         # CLOSE; 0 para os demais
+  reason="curto"
+)
+```
+
 - BUY/SELL: preencha `sl` e `tp` (preço absoluto). CLOSE: preencha `close_id`. HOLD: zeros.
+- A tool monta o envelope `{"correlation_id":..., "decision":{...}}` e faz o POST para o
+  `callback_url` sozinha. Retorna `ok=true` e `status` 2xx quando o bridge aceitou.
 
-Envie via `curl` para o `callback_url`, embrulhado com o `correlation_id`:
-```
-curl -s -X POST "<callback_url>" -H "Content-Type: application/json" \
-  -d '{"correlation_id":"<correlation_id>","decision":{"action":"...","volume":1,"sl":0,"tp":0,"close_id":0,"reason":"..."}}'
-```
-
-Faça **uma** decisão e **um** callback. Nada além disso.
+Faça **uma** decisão e **uma** chamada de callback. Nada além disso.
