@@ -1,6 +1,6 @@
 ---
 name: smc-autotrader
-description: Trader autônomo do mini-índice (WIN) da B3 com estratégia SMC + ADX que aprende padrões entre execuções usando a memória nativa do Hermes. O contrato negociado (ex.: WINQ26) é configurável dentro da skill. Use quando o usuário quiser rodar o robô autônomo, executar uma decisão automática de compra/venda/manter, rodar o ciclo de trade do pregão, ou fazer o fechamento/diário do dia. Dispara em: auto-trader, robô, trader autônomo, decisão automática, rodar estratégia, SMC, WIN, mini-índice, fim de dia, padrões.
+description: "Trader autônomo do mini-índice (WIN) da B3 com estratégia SMC + ADX que aprende padrões entre execuções usando a memória nativa do Hermes. O contrato negociado (ex. WINQ26) é configurável dentro da skill. Use quando o usuário quiser rodar o robô autônomo, executar uma decisão automática de compra/venda/manter, rodar o ciclo de trade do pregão, ou fazer o fechamento/diário do dia. Dispara em — auto-trader, robô, trader autônomo, decisão automática, rodar estratégia, SMC, WIN, mini-índice, fim de dia, padrões."
 version: 1.1.0
 user-invocable: true
 metadata:
