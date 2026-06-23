@@ -34,7 +34,8 @@ HERMES_ROUTE    = os.getenv("HERMES_ROUTE",    "backtest")
 CALLBACK_BASE   = os.getenv("CALLBACK_BASE_URL", "http://127.0.0.1:8000")  # onde ESTA ponte escuta (acessivel pelo Hermes)
 DECIDE_TIMEOUT  = float(os.getenv("DECIDE_TIMEOUT", "45"))   # deve ser < timeout do EA
 DISPATCH_TIMEOUT= float(os.getenv("DISPATCH_TIMEOUT", "10")) # timeout do POST ao webhook
-WEBHOOK_SECRET  = os.getenv("HERMES_WEBHOOK_SECRET", "")     # se a rota exigir HMAC-SHA256
+WEBHOOK_SECRET  = os.getenv("HERMES_WEBHOOK_SECRET", "")     # rota com HMAC-SHA256 (X-Hub-Signature-256)
+WEBHOOK_TOKEN   = os.getenv("HERMES_WEBHOOK_TOKEN", "")      # rota com token simples (X-Gitlab-Token)
 CACHE_FILE      = Path(os.getenv("CACHE_FILE", "backtest_cache.json"))
 LOG_FILE        = os.getenv("LOG_FILE", "logs/bridge.log")
 
@@ -102,11 +103,14 @@ def _build_prompt(ctx: dict, correlation_id: str) -> str:
         "Aplique a skill smc-backtest e devolva a decisao via curl no callback_url.",
     ])
 
-def _sign(body: bytes) -> dict:
-    if not WEBHOOK_SECRET:
-        return {}
-    mac = hmac.new(WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
-    return {"X-Hub-Signature-256": f"sha256={mac}"}
+def _auth_headers(body: bytes) -> dict:
+    h: dict = {}
+    if WEBHOOK_TOKEN:                       # GitLab-style: comparacao de string simples
+        h["X-Gitlab-Token"] = WEBHOOK_TOKEN
+    if WEBHOOK_SECRET:                      # GitHub-style: HMAC-SHA256 do corpo
+        mac = hmac.new(WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
+        h["X-Hub-Signature-256"] = f"sha256={mac}"
+    return h
 
 # ─── Endpoints ───────────────────────────────────────────────────────────────
 @app.post("/decide")
@@ -127,7 +131,7 @@ async def decide(req: Request):
         "event_type": "smc_decide",
     }
     body = json.dumps(payload).encode("utf-8")
-    headers = {"Content-Type": "application/json", **_sign(body)}
+    headers = {"Content-Type": "application/json", **_auth_headers(body)}
 
     loop = asyncio.get_event_loop()
     fut: asyncio.Future = loop.create_future()
