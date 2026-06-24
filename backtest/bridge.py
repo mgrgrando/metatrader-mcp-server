@@ -183,6 +183,15 @@ async def callback(req: Request):
     log.warning("CALLBACK late/unknown cid=%s", cid)
     return {"status": "unknown_or_late", "correlation_id": cid}
 
+@app.post("/cache/clear")
+async def cache_clear():
+    global _cache
+    n = len(_cache)
+    _cache = {}
+    _save_cache()
+    log.info("CACHE cleared (%d entries removidas)", n)
+    return {"status": "ok", "removed": n}
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "pending": len(_pending), "cache_entries": len(_cache),
